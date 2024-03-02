@@ -277,8 +277,10 @@ class SwitchTransformersSparseMLP(nn.Module):
     Implementation of the Switch Transformers Sparse MLP module.
     """
 
-    def __init__(self, config: SwitchTransformersConfig, expert_class: nn.Module = SwitchTransformersDenseActDense):
+    def __init__(self, config: SwitchTransformersConfig, expert_class: nn.Module = SwitchTransformersDenseActDense, layer_num=1):
         super().__init__()
+        self.config = config
+        self.layer_num = layer_num
         # Step 1: Get the correct router according to its class
         self.router = SwitchTransformersTop1Router(config)
 
@@ -301,6 +303,8 @@ class SwitchTransformersSparseMLP(nn.Module):
         """
         # Step 1: Get the router_mask from the router as wel as the probabilities
         router_mask, router_probs, router_logits = self.router(hidden_states)
+        # print(f'Is decoder:{self.config.is_decoder} - Layer Number:{self.layer_num}')
+        # print(router_mask, router_probs, router_logits)
         expert_index = torch.argmax(router_mask, dim=-1)
 
         # The routers introduced might not always map all the tokens, to a router, which means that some hidden states
@@ -327,15 +331,15 @@ class SwitchTransformersLayerFF(nn.Module):
             Whether the MLP layer is a `Sparse` layer (contains a Mixture of Experts) or not
     """
 
-    def __init__(self, config: SwitchTransformersConfig, is_sparse=False):
+    def __init__(self, config: SwitchTransformersConfig, is_sparse=False, layer_num=1):
         super().__init__()
         self.is_sparse = is_sparse
-
+        self.layer_num = layer_num
         # Check if it is a sparse layer, if not then it is a dense layer
         if not self.is_sparse:
             self.mlp = SwitchTransformersDenseActDense(config)
         else:
-            self.mlp = SwitchTransformersSparseMLP(config)
+            self.mlp = SwitchTransformersSparseMLP(config, layer_num=self.layer_num)
 
         self.layer_norm = SwitchTransformersLayerNorm(config.d_model, eps=config.layer_norm_epsilon)
         self.dropout = nn.Dropout(config.dropout_rate)
@@ -666,10 +670,11 @@ class SwitchTransformersLayerCrossAttention(nn.Module):
 
 
 class SwitchTransformersBlock(nn.Module):
-    def __init__(self, config, has_relative_attention_bias=False, is_sparse=False):
+    def __init__(self, config, has_relative_attention_bias=False, is_sparse=False, layer_num=1):
         super().__init__()
         self.is_decoder = config.is_decoder
         self.is_sparse = is_sparse
+        self.layer_num = layer_num
         self.layer = nn.ModuleList()
         self.layer.append(
             SwitchTransformersLayerSelfAttention(config, has_relative_attention_bias=has_relative_attention_bias)
@@ -677,7 +682,7 @@ class SwitchTransformersBlock(nn.Module):
         if self.is_decoder:
             self.layer.append(SwitchTransformersLayerCrossAttention(config))
 
-        self.layer.append(SwitchTransformersLayerFF(config, is_sparse=self.is_sparse))
+        self.layer.append(SwitchTransformersLayerFF(config, is_sparse=self.is_sparse, layer_num=self.layer_num))
 
     def forward(
         self,
@@ -901,7 +906,7 @@ class SwitchTransformersStack(SwitchTransformersPreTrainedModel):
             is_sparse = (i % sparse_step == 1 or sparse_step == 1) if sparse_step > 0 else False
 
             self.block.append(
-                SwitchTransformersBlock(config, has_relative_attention_bias=bool(i == 0), is_sparse=is_sparse)
+                SwitchTransformersBlock(config, has_relative_attention_bias=bool(i == 0), is_sparse=is_sparse, layer_num=i)
             )
 
         self.final_layer_norm = SwitchTransformersLayerNorm(config.d_model, eps=config.layer_norm_epsilon)
@@ -1490,6 +1495,7 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
         # Initialize weights and apply final processing
         self.post_init()
 
+        self.num_frwd_pass = 0
         # Model parallel
         self.device_map = None
 
@@ -1573,6 +1579,11 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
         ```"""
         use_cache = use_cache if use_cache is not None else self.config.use_cache
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
+        # ##ABHI
+        # self.num_frwd_pass += 1
+        # print("Num frwd pass:", self.num_frwd_pass)
+        # ##IBHA
+
 
         # FutureWarning: head_mask was separated into two input args - head_mask, decoder_head_mask
         if head_mask is not None and decoder_head_mask is None:
@@ -1677,7 +1688,8 @@ class SwitchTransformersForConditionalGeneration(SwitchTransformersPreTrainedMod
             output += (*decoder_outputs[1:], *encoder_outputs)
 
             return ((loss,) + output) if loss is not None else output
-
+        
+        # print(decoder_outputs.router_probs)
         return Seq2SeqMoEOutput(
             loss=loss,
             logits=lm_logits,

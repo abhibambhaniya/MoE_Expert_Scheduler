@@ -187,6 +187,8 @@ class GenerateEncoderDecoderOutput(ModelOutput):
     cross_attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     decoder_hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
+    encoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
+    decoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 
 @dataclass
@@ -1162,6 +1164,12 @@ class GenerationMixin:
             if "assistant_encoder_outputs" in model_kwargs:
                 model_args |= {"assistant_encoder_outputs"}
 
+            # Allow moe logits
+            if "encoder_router_logits" in model_kwargs:
+                model_args |= {"encoder_router_logits"} 
+            if "decoder_router_logits" in model_kwargs:
+                model_args |= {"decoder_router_logits"} 
+
         for key, value in model_kwargs.items():
             if value is not None and key not in model_args:
                 unused_model_args.append(key)
@@ -1472,7 +1480,7 @@ class GenerationMixin:
 
         # 7. determine generation mode
         generation_mode = self._get_generation_mode(generation_config, assistant_model)
-
+        
         if streamer is not None and (generation_config.num_beams > 1):
             raise ValueError(
                 "`streamer` cannot be used with beam search (yet!). Make sure that `num_beams` is set to 1."
@@ -2389,6 +2397,11 @@ class GenerationMixin:
         cross_attentions = () if (return_dict_in_generate and output_attentions) else None
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
 
+        record_encoder_router_logits = model_kwargs.get("encoder_router_logits", False) 
+        record_decoder_router_logits = model_kwargs.get("decoder_router_logits", False) 
+        encoder_router_logits = () if (return_dict_in_generate and record_encoder_router_logits) else None
+        decoder_router_logits = () if (return_dict_in_generate and record_decoder_router_logits) else None
+
         # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
         if return_dict_in_generate and self.config.is_encoder_decoder:
             encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
@@ -2421,7 +2434,7 @@ class GenerationMixin:
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
             )
-
+            
             if synced_gpus and this_peer_finished:
                 continue  # don't waste resources running the code we don't need
 
@@ -2449,6 +2462,11 @@ class GenerationMixin:
                         if self.config.is_encoder_decoder
                         else (outputs.hidden_states,)
                     )
+                if record_encoder_router_logits:
+                    encoder_router_logits += (outputs.encoder_router_logits,)
+
+                if record_decoder_router_logits:
+                    decoder_router_logits += (outputs.decoder_router_logits,)  
 
             # argmax
             next_tokens = torch.argmax(next_tokens_scores, dim=-1)
@@ -2500,6 +2518,8 @@ class GenerationMixin:
                     cross_attentions=cross_attentions,
                     decoder_hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
+                    encoder_router_logits=encoder_router_logits,
+                    decoder_router_logits=decoder_router_logits
                 )
             else:
                 return GenerateDecoderOnlyOutput(
