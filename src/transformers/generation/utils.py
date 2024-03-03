@@ -135,6 +135,7 @@ class GenerateDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
+    router_logits: Optional[torch.FloatTensor] = None
 
 
 @dataclass
@@ -1562,7 +1563,7 @@ class GenerationMixin:
                 eos_token_id=generation_config.eos_token_id,
                 output_scores=generation_config.output_scores,
                 output_logits=generation_config.output_logits,
-                return_dict_in_generate=generation_config.return_dict_in_generate,
+                return_dict_in_generate=True,
                 synced_gpus=synced_gpus,
                 streamer=streamer,
                 **model_kwargs,
@@ -2398,9 +2399,15 @@ class GenerationMixin:
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
 
         record_encoder_router_logits = model_kwargs.get("encoder_router_logits", False) 
-        record_decoder_router_logits = model_kwargs.get("decoder_router_logits", False) 
+        record_decoder_router_logits = model_kwargs.get("decoder_router_logits", False)
+        record_router_logits = model_kwargs.get('output_router_logits', False)
+        router_flags = {'output_router_logits': record_router_logits}
+
         encoder_router_logits = () if (return_dict_in_generate and record_encoder_router_logits) else None
         decoder_router_logits = () if (return_dict_in_generate and record_decoder_router_logits) else None
+        router_logits = () if (return_dict_in_generate and record_router_logits) else None
+
+        router_flags = {'output_router_logits': record_router_logits}
 
         # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
         if return_dict_in_generate and self.config.is_encoder_decoder:
@@ -2433,6 +2440,7 @@ class GenerationMixin:
                 return_dict=True,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
+                **router_flags
             )
             
             if synced_gpus and this_peer_finished:
@@ -2466,7 +2474,10 @@ class GenerationMixin:
                     encoder_router_logits += (outputs.encoder_router_logits,)
 
                 if record_decoder_router_logits:
-                    decoder_router_logits += (outputs.decoder_router_logits,)  
+                    decoder_router_logits += (outputs.decoder_router_logits,)
+
+                if record_router_logits:
+                    router_logits += (outputs.router_logits)
 
             # argmax
             next_tokens = torch.argmax(next_tokens_scores, dim=-1)
@@ -2519,7 +2530,7 @@ class GenerationMixin:
                     decoder_hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
                     encoder_router_logits=encoder_router_logits,
-                    decoder_router_logits=decoder_router_logits
+                    decoder_router_logits=router_logits
                 )
             else:
                 return GenerateDecoderOnlyOutput(
@@ -2529,6 +2540,7 @@ class GenerationMixin:
                     attentions=decoder_attentions,
                     hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
+                    router_logits=router_logits
                 )
         else:
             return input_ids
