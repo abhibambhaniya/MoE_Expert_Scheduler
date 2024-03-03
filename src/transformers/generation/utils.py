@@ -2530,7 +2530,7 @@ class GenerationMixin:
                     decoder_hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
                     encoder_router_logits=encoder_router_logits,
-                    decoder_router_logits=router_logits
+                    decoder_router_logits=decoder_router_logits
                 )
             else:
                 return GenerateDecoderOnlyOutput(
