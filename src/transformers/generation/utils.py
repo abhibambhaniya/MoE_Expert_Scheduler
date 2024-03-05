@@ -135,6 +135,7 @@ class GenerateDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
+    decoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 
 @dataclass
@@ -237,6 +238,7 @@ class GenerateBeamDecoderOnlyOutput(ModelOutput):
     attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
+    decoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 
 @dataclass
@@ -298,6 +300,8 @@ class GenerateBeamEncoderDecoderOutput(ModelOutput):
     cross_attentions: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     decoder_hidden_states: Optional[Tuple[Tuple[torch.FloatTensor]]] = None
     past_key_values: Optional[Tuple[Tuple[Tuple[torch.FloatTensor]]]] = None
+    encoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
+    decoder_router_logits: Optional[Tuple[torch.FloatTensor]] = None
 
 
 # Equivalent classes (kept for retrocompatibility purposes)
