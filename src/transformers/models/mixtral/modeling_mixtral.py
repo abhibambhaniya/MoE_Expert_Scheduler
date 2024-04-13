@@ -1388,15 +1388,18 @@ class MixtralForCausalLM(MixtralPreTrainedModel):
             loss = loss_fct(shift_logits, shift_labels)
 
         aux_loss = None
-        if output_router_logits:
-            aux_loss = load_balancing_loss_func(
-                outputs.router_logits if return_dict else outputs[-1],
-                self.num_experts,
-                self.num_experts_per_tok,
-                attention_mask,
-            )
-            if labels is not None:
-                loss += self.router_aux_loss_coef * aux_loss.to(loss.device)  # make sure to reside in the same device
+        # Commenting this out because right now huggingface has this issue - they have designed output_router_logits
+        # not to work with inference as it is assumed that it is only useful for training.
+        # https://github.com/huggingface/transformers/issues/29087
+        # if output_router_logits:
+        #     aux_loss = load_balancing_loss_func(
+        #         outputs.router_logits if return_dict else outputs[-1],
+        #         self.num_experts,
+        #         self.num_experts_per_tok,
+        #         attention_mask,
+        #     )
+        #     if labels is not None:
+        #         loss += self.router_aux_loss_coef * aux_loss.to(loss.device)  # make sure to reside in the same device
 
         if not return_dict:
             output = (logits,) + outputs[1:]
