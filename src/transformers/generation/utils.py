@@ -2717,6 +2717,12 @@ class GenerationMixin:
         cross_attentions = () if (return_dict_in_generate and output_attentions) else None
         decoder_hidden_states = () if (return_dict_in_generate and output_hidden_states) else None
 
+        record_decoder_router_logits = model_kwargs.get("decoder_router_logits", False)
+        record_router_logits = model_kwargs.get('output_router_logits', False)
+        router_flags = {'output_router_logits': record_router_logits}
+
+        router_logits = () if (return_dict_in_generate and record_router_logits) else None
+
         # if model is an encoder-decoder, retrieve encoder attention weights and hidden states
         if return_dict_in_generate and self.config.is_encoder_decoder:
             encoder_attentions = model_kwargs["encoder_outputs"].get("attentions") if output_attentions else None
@@ -2749,6 +2755,7 @@ class GenerationMixin:
                 return_dict=True,
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
+                **router_flags
             )
 
             if synced_gpus and this_peer_finished:
@@ -2779,6 +2786,9 @@ class GenerationMixin:
                         if self.config.is_encoder_decoder
                         else (outputs.hidden_states,)
                     )
+
+                if record_router_logits:
+                    router_logits += (outputs.router_logits)
 
             # sample
             probs = nn.functional.softmax(next_token_scores, dim=-1)
@@ -2828,6 +2838,7 @@ class GenerationMixin:
                     cross_attentions=cross_attentions,
                     decoder_hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
+                    router_logits=router_logits
                 )
             else:
                 return GenerateDecoderOnlyOutput(
@@ -2837,6 +2848,7 @@ class GenerationMixin:
                     attentions=decoder_attentions,
                     hidden_states=decoder_hidden_states,
                     past_key_values=model_kwargs.get("past_key_values"),
+                    router_logits=router_logits
                 )
         else:
             return input_ids
